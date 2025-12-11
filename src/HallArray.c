@@ -35,6 +35,8 @@
 #define IN7 (0x4 << 3)
 
 static uint adc_buffer[BUFFER_SIZE];
+static const uint8_t input_ctrl[8] = {IN0, IN1, IN2, IN3, IN4, IN5, IN6, IN7};
+static const uint8_t channel_ctrl[5] = {CS1, CS2, CS3, CS4, CS5};
 
 void spi_init_adc_bus(void){
     spi_init(SPI_PORT, .1 * 1000 * 1000); // 1 MHz
@@ -44,11 +46,10 @@ void spi_init_adc_bus(void){
     gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
 
-    uint cs_pins[] = {CS1, CS2, CS3, CS4, CS5};
     for (int i = 0; i < 5; i++){
-        gpio_init(cs_pins[i]);
-        gpio_set_dir(cs_pins[i], GPIO_OUT);
-        gpio_put(cs_pins[i], 1); // Inactive (Active Low)
+        gpio_init(channel_ctrl[i]);
+        gpio_set_dir(channel_ctrl[i], GPIO_OUT);
+        gpio_put(channel_ctrl[i], 1); // Inactive (Active Low)
     }
 }
 
@@ -56,25 +57,30 @@ void adc_init(void){
 
 }
 
-void adc_read(void){
-
-}
-
 uint16_t spi_transfer16(uint16_t tx){
-    uint8_t tx_buf[2] = { (tx >> 8) & 0xFF, tx & 0xFF};
-    uint8_t rx_buf[2];
+    uint8_t tx_buf[4] = { (tx >> 8) & 0xFF, tx & 0xFF, 0x00, 0x00};
+    uint8_t rx_buf[4];
     spi_write_read_blocking(SPI_PORT, tx_buf, rx_buf, 2);
     return ((uint16_t)rx_buf[0] << 8) | rx_buf[1];
+}
+
+uint16_t adc_read(uint8_t channel, uint8_t input){
+    gpio_put(channel, 0);
+    spi_transfer16((uint16_t)input << 8);
+    uint16_t raw = spi_transfer16((uint16_t)input << 8);
+    gpio_put(channel, 1);
+    return raw;
 }
 
 void main_task(__unused void *params) {
     printf("Entering main task\n");
     while(1) {
-        gpio_put(CS1, 0);
-        spi_transfer16((uint16_t)IN0 << 8);
-        uint16_t raw = spi_transfer16((uint16_t)IN0 << 8);
-        gpio_put(CS1, 1);
-        printf("ADC Reading: %u\n", raw);
+        for(int i = 0; i < 8; i++){
+            for(int j = 0; j < 10000; j++){
+                uint16_t raw = adc_read(CS1, input_ctrl[i]);
+                printf("Channel %d ADC Reading: %u\n", i, raw);
+            }
+        }
         // vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
